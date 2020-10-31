@@ -121,6 +121,10 @@ fn build_tree<const N: usize>(edges: &BTreeSet<Edge>, max_depth: usize) -> ([u8;
     let mut dfs_assignments: HashMap<usize, u8> = HashMap::new();
     let mut stack: Vec<(Option<Edge>, usize)> = vec![(None, 0)];
 
+    let edge_numbers = edges.iter().map(|e| e.number).collect::<BTreeSet<_>>();
+    assert_eq!(edge_numbers.len(), edges.len());
+    assert!(edge_numbers.iter().all(|&e| e < 16));
+
     while let Some((maybe_edge, depth)) = stack.pop() {
         assert!(depth <= max_depth);
         if let Some(edge) = maybe_edge {
@@ -130,9 +134,11 @@ fn build_tree<const N: usize>(edges: &BTreeSet<Edge>, max_depth: usize) -> ([u8;
 
             let mut parent_byte = match edge.parent {
                 Some(input_ix) => {
-                    let dfs_ix = dfs_assignments[&input_ix];
-                    assert!(dfs_ix < (N as u8));
-                    dfs_ix
+                    // let dfs_ix = dfs_assignments[&input_ix];
+                    // assert!(dfs_ix < (N as u8));
+                    // dfs_ix
+                    assert!(input_ix < N);
+                    input_ix as u8
                 },
                 None => 0b1000_0000,
             };
@@ -143,8 +149,10 @@ fn build_tree<const N: usize>(edges: &BTreeSet<Edge>, max_depth: usize) -> ([u8;
                 parent_byte |= 1 << 5;
             }
 
-            packed_nodes[dfs_number as usize] = parent_byte;
-            packed_edges[dfs_number as usize] = edge.label;
+            // packed_nodes[dfs_number as usize] = parent_byte;
+            // packed_edges[dfs_number as usize] = edge.label;
+            packed_nodes[edge.number as usize] = parent_byte;
+            packed_edges[edge.number as usize] = edge.label;
         }
 
         let src_start = maybe_edge.map(|e| e.number);
