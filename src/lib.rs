@@ -1,19 +1,22 @@
 #![feature(min_const_generics)]
 
+#[cfg(test)]
+mod tests;
+
 use packed_simd::{
     u8x16,
 };
 use std::collections::{HashMap, BTreeSet};
 
 pub struct ByteTrie16 {
-    // [ 0: no_parent? ] [ 1-3: unused ] [ 4-8: parent pointer ]
+    // [ 0: no_parent? ] [ 1: has value? ] [ 2: has branch? ] [ 3: unused ] [ 4-8: parent pointer ]
     nodes: u8x16,
     // Label of incoming edge
     edges: u8x16,
 }
 
 impl ByteTrie16 {
-    pub fn new(edges: BTreeSet<Edge>) -> Self {
+    pub fn new(edges: &BTreeSet<Edge>) -> Self {
         assert!(edges.len() <= 16);
         let (packed_edges, packed_nodes) = build_tree(edges, 8);
         let edges = u8x16::from(packed_edges);
@@ -21,27 +24,23 @@ impl ByteTrie16 {
         Self { edges, nodes }
     }
 
-    pub fn traverse(&self, query: &[u8; 8], query_len: usize) -> Lookup {
+    fn match_bitsets(&self, query: &[u8; 8]) -> u8x16 {
         let zero = u8x16::splat(0);
-
-        // First compute all of the edge match bitsets.
-        // edge_matches[i][j] is set if edges[i] == query[j].
-        let mut edge_matches_0 = [u8x16::splat(0); 8];
+        let mut out = zero;
         for i in 0..8 {
             let label = u8x16::splat(query[i]);
             let bitset = u8x16::splat(1 << i);
-            edge_matches_0[i] = self.edges.eq(label).select(bitset, zero);
+            out |= self.edges.eq(label).select(bitset, zero);
         }
-        let mut edge_matches_1 = [u8x16::splat(0); 4];
-        for i in 0..4 {
-            edge_matches_1[i] = edge_matches_0[2 * i] | edge_matches_0[2 * i + 1];
-        }
-        let edge_matches = (edge_matches_1[0] | edge_matches_1[1])
-            | (edge_matches_1[2] | edge_matches_1[3]);
+        out
+    }
 
-        //
+    pub fn traverse(&self, query: &[u8; 8], query_len: usize) -> Lookup {
+        let zero = u8x16::splat(0);
+        let edge_matches = self.match_bitsets(query);
+
         let root_byte = 0b1000_0000;
-        let matches0 = self.nodes.eq(u8x16::splat(root_byte)).select(edge_matches, zero);
+        let matches0 = (self.nodes & u8x16::splat(root_byte)).eq(zero).select(zero, edge_matches);
         let matches1 = (matches0.shuffle1_dyn(self.nodes) << 1) & edge_matches;
         let matches2 = (matches1.shuffle1_dyn(self.nodes) << 1) & edge_matches;
         let matches3 = (matches2.shuffle1_dyn(self.nodes) << 1) & edge_matches;
@@ -114,9 +113,9 @@ impl Edge {
     }
 }
 
-fn build_tree<const N: usize>(edges: BTreeSet<Edge>, max_depth: usize) -> ([u8; N], [u8; N]) {
+fn build_tree<const N: usize>(edges: &BTreeSet<Edge>, max_depth: usize) -> ([u8; N], [u8; N]) {
     let mut packed_edges = [0b0000_0000; N];
-    let mut packed_nodes = [0b1001_1111; N];
+    let mut packed_nodes = [0b0000_0000; N];
 
     let mut next_dfs = 0u8;
     let mut dfs_assignments: HashMap<usize, u8> = HashMap::new();
@@ -132,7 +131,7 @@ fn build_tree<const N: usize>(edges: BTreeSet<Edge>, max_depth: usize) -> ([u8; 
             let mut parent_byte = match edge.parent {
                 Some(input_ix) => {
                     let dfs_ix = dfs_assignments[&input_ix];
-                    assert!(dfs_ix < 32);
+                    assert!(dfs_ix < (N as u8));
                     dfs_ix
                 },
                 None => 0b1000_0000,
@@ -156,23 +155,4 @@ fn build_tree<const N: usize>(edges: BTreeSet<Edge>, max_depth: usize) -> ([u8; 
     }
 
     (packed_edges, packed_nodes)
-}
-
-#[test]
-fn test_tree() {
-    //       .
-    //  1  /    \ 2
-    //  3 / \ 4 | 5
-    //          | 7
-    let e = &[
-        Edge { parent: None,    label: 1, number: 0, has_value: false, has_branch: false },
-        Edge { parent: None,    label: 2, number: 1, has_value: false, has_branch: false },
-        Edge { parent: Some(0), label: 3, number: 2, has_value: true,  has_branch: false },
-        Edge { parent: Some(0), label: 4, number: 3, has_value: true,  has_branch: false },
-        Edge { parent: Some(1), label: 5, number: 4, has_value: false, has_branch: false },
-        Edge { parent: Some(4), label: 7, number: 5, has_value: true,  has_branch: false },
-    ];
-    let edges = e.iter().cloned().collect();
-    let t = ByteTrie16::new(edges);
-    assert_eq!(t.traverse(&[0, 1, 4, 0, 0, 0, 0, 0], 1), Lookup::None);
 }
