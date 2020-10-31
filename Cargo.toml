@@ -1,0 +1,10 @@
+[package]
+name = "arbolito"
+version = "0.1.0"
+authors = ["Sujay Jayakar <sujayakar314@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+packed_simd = { version = "0.3.4", package = "packed_simd_2" }
