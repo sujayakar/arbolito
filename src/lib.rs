@@ -58,8 +58,9 @@ impl ByteTrie16 {
             6 => matches5,
             7 => matches6,
             8 => matches7,
-            _ => panic!("Invalid query len"),
+            _ => return Lookup::None,
         };
+        // Safety: query_len is guaranteed to be 1-8 from the match above
         let mask = state & u8x16::splat(1 << (query_len as u8 - 1));
         let match_mask = mask.ne(zero).bitmask();
 
